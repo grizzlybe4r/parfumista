@@ -1,10 +1,10 @@
-//import 'package:auranotes/models/user.dart';
 import 'package:parfumista/models/user.dart';
 import 'package:parfumista/providers/favorite_provider.dart';
 import 'package:parfumista/screens/favorite_screen.dart';
 import 'package:parfumista/screens/feedback_screen.dart';
 import 'package:parfumista/screens/home_screen.dart';
 import 'package:parfumista/screens/profile_screen.dart';
+import 'package:parfumista/screens/splash_screen.dart';
 import 'package:parfumista/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -40,13 +40,14 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.blue,
           visualDensity: VisualDensity.adaptivePlatformDensity,
         ),
-        initialRoute: '/',
+        initialRoute: '/splash',
         routes: {
           '/': (context) => LoginScreen(),
           '/home': (context) => HomeScreen(),
           '/profile': (context) => ProfileScreen(),
           '/feedback': (context) => FeedbackScreen(),
           '/favorite': (context) => FavoriteScreen(),
+          '/splash': (context) => SplashScreen(),
         });
   }
 }
