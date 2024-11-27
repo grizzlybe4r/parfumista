@@ -1,6 +1,11 @@
 # parfumista
+Aplikasi Katalog Parfum
 
-A new Flutter project.
+Tugas Akhir Praktikum Pemrograman Aplikasi Mobile SI - E
+
+Anggota Kelompok : 
+1. Nasywan Jibran Aryadi       124220038
+2. Marsha Gveeniva Timbuleng   124220052
 
 ## Getting Started
 
