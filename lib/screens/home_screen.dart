@@ -1,5 +1,3 @@
-// home_screen.dart
-
 import 'package:parfumista/models/perfume.dart';
 import 'package:parfumista/screens/perfume_detail_screen.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +7,7 @@ import 'package:parfumista/screens/currency_converter_screen.dart';
 import 'package:parfumista/screens/time_converter_screen.dart';
 import 'package:parfumista/services/auth_service.dart';
 import 'package:parfumista/models/user.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -20,38 +19,73 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final AuthService _authService = AuthService();
   final PerfumeApiService _perfumeApiService = PerfumeApiService();
+  Timer? _debounceTimer;
 
   User? currentUser;
   List<Perfume> _perfumes = [];
+  List<Perfume> _allPerfumes = [];
   bool _isLoading = false;
+  String _errorMessage = '';
+  bool _showNoResults = false;
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUser();
     _loadRecommendedPerfumes();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _debounceTimer?.cancel();
+    _perfumeApiService.dispose(); // Bersihkan resources API service
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (_searchController.text.isNotEmpty) {
+        _searchPerfumes(_searchController.text);
+      } else {
+        _loadRecommendedPerfumes();
+      }
+    });
   }
 
   Future<void> _loadCurrentUser() async {
-    final user = await _authService.getCurrentUser();
-    setState(() {
-      currentUser = user;
-    });
+    try {
+      final user = await _authService.getCurrentUser();
+      setState(() {
+        currentUser = user;
+      });
+    } catch (e) {
+      print('Error loading user: $e');
+      // Tidak perlu menampilkan error ke user untuk loading user
+    }
   }
 
   Future<void> _loadRecommendedPerfumes() async {
     setState(() {
       _isLoading = true;
+      _errorMessage = '';
+      _showNoResults = false;
     });
 
     try {
-      // Panggil API untuk mendapatkan parfum rekomendasi
       final recommendedPerfumes = await _perfumeApiService.searchPerfumes('');
       setState(() {
         _perfumes = recommendedPerfumes;
+        _allPerfumes = recommendedPerfumes;
+        _showNoResults = recommendedPerfumes.isEmpty;
       });
     } catch (e) {
-      print('Error: $e');
+      setState(() {
+        _errorMessage = 'Gagal memuat parfum rekomendasi. Silakan coba lagi.';
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -59,25 +93,194 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Fungsi untuk melakukan pencarian parfum
-  Future<void> _searchPerfumes() async {
+  Future<void> _searchPerfumes(String query) async {
+    if (query.trim().isEmpty) {
+      _loadRecommendedPerfumes();
+      return;
+    }
+
     setState(() {
       _isLoading = true;
+      _errorMessage = '';
+      _showNoResults = false;
     });
 
     try {
-      final results =
-          await _perfumeApiService.searchPerfumes(_searchController.text);
+      if (_allPerfumes.isNotEmpty) {
+        final localResults = _performLocalSearch(query);
+        if (localResults.isNotEmpty) {
+          setState(() {
+            _perfumes = localResults;
+            _isLoading = false;
+          });
+          return; // Keluar jika hasil lokal ditemukan
+        }
+      }
+
+      final results = await _perfumeApiService.searchPerfumes(query);
       setState(() {
         _perfumes = results;
+        _showNoResults = results.isEmpty;
       });
     } catch (e) {
-      print('Error: $e');
+      setState(() {
+        _errorMessage =
+            'Terjadi kesalahan saat mencari parfum. Silakan coba lagi.';
+      });
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  List<Perfume> _performLocalSearch(String query) {
+    query = query.toLowerCase();
+    return _allPerfumes.where((perfume) {
+      return perfume.name.toLowerCase().contains(query) ||
+          perfume.brand.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Widget _buildSearchResults() {
+    if (_isLoading) {
+      return Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _errorMessage,
+              style: TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadRecommendedPerfumes,
+              child: Text('Coba Lagi'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_showNoResults) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'Tidak ada parfum yang ditemukan',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: _perfumes.length,
+      itemBuilder: (context, index) {
+        final perfume = _perfumes[index];
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PerfumeDetailScreen(perfume: perfume),
+              ),
+            );
+          },
+          child: Card(
+            elevation: 2,
+            margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Container(
+              color: Colors.white,
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        perfume.imageUrl,
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 80,
+                            height: 80,
+                            color: Colors.grey[300],
+                            child: Icon(Icons.error),
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(width: 16.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            perfume.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16.0,
+                            ),
+                          ),
+                          SizedBox(height: 4.0),
+                          Text(
+                            perfume.brand,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14.0,
+                            ),
+                          ),
+                          SizedBox(height: 4.0),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.star,
+                                color: Colors.amber,
+                                size: 18,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                '${perfume.rating.toStringAsFixed(1)}',
+                                style: TextStyle(
+                                  color: Colors.amber[700],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -130,7 +333,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                    builder: (context) => CurrencyConverterScreen()),
+                  builder: (context) => CurrencyConverterScreen(),
+                ),
               );
             },
           ),
@@ -139,7 +343,9 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => TimeConverterScreen()),
+                MaterialPageRoute(
+                  builder: (context) => TimeConverterScreen(),
+                ),
               );
             },
           ),
@@ -150,28 +356,36 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Search Bar
             Padding(
               padding: EdgeInsets.all(16.0),
               child: TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
                   labelText: 'Cari Parfum',
-                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Masukkan nama atau brand parfum...',
+                  prefixIcon: Icon(Icons.search, color: Colors.amber),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            _loadRecommendedPerfumes();
+                          },
+                        )
+                      : null,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
+                    borderRadius: BorderRadius.circular(12.0),
+                    borderSide: BorderSide(color: Colors.amber),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12.0),
+                    borderSide: BorderSide(color: Colors.amber, width: 2),
                   ),
                   filled: true,
                   fillColor: Colors.white,
                 ),
-                onSubmitted: (value) {
-                  if (value.isNotEmpty) {
-                    _searchPerfumes(); // Panggil fungsi pencarian
-                  }
-                },
               ),
             ),
-            // Welcome Message
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Container(
@@ -209,75 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             Expanded(
-              child: _isLoading
-                  ? Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      itemCount: _perfumes.length,
-                      itemBuilder: (context, index) {
-                        final perfume = _perfumes[index];
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    PerfumeDetailScreen(perfume: perfume),
-                              ),
-                            );
-                          },
-                          child: Card(
-                            child: Container(
-                              color: Colors.white60,
-                              child: Padding(
-                                padding: EdgeInsets.all(16.0),
-                                child: Row(
-                                  children: [
-                                    Image.network(
-                                      perfume.imageUrl,
-                                      width: 80,
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                    ),
-                                    SizedBox(width: 16.0),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            perfume.name,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16.0,
-                                            ),
-                                          ),
-                                          SizedBox(height: 4.0),
-                                          Text(
-                                            perfume.brand,
-                                            style: TextStyle(
-                                              color: Colors.grey,
-                                              fontSize: 14.0,
-                                            ),
-                                          ),
-                                          SizedBox(height: 4.0),
-                                          Text(
-                                            '${perfume.rating.toStringAsFixed(1)} / 5',
-                                            style: TextStyle(
-                                              color: Colors.amber,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+              child: _buildSearchResults(),
             ),
           ],
         ),

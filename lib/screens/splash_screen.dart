@@ -71,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen>
               ),
               const SizedBox(height: 24),
               Text(
-                'Perfume Catalog',
+                'Hello Parfumista',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
